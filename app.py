@@ -1,82 +1,70 @@
 import os
-import requests
 from flask import Flask, request
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
 from datetime import datetime, timedelta
-import json
 
 app = Flask(__name__)
 
-# Token BRAPI configurado como variável de ambiente no Render
-BRAPI_TOKEN = os.environ.get("BRAPI_TOKEN", "")
-HEADERS = {"Authorization": f"Bearer {BRAPI_TOKEN}"} if BRAPI_TOKEN else {}
-
-def get_dividendos(ticker):
-    url = f"https://brapi.dev/api/quote/{ticker}?dividends=true"
+def extrair_proventos_statusinvest(ticker):
+    url = f"https://statusinvest.com.br/acoes/{ticker.lower()}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
     try:
-        response = requests.get(url, headers=HEADERS)
-        data = response.json()
-        dividendos = data["results"][0].get("dividendsData", {}).get("dividends", [])
-        return dividendos
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        tabela = soup.find("table", {"id": "provents-table"})
+        linhas = tabela.find_all("tr")[1:]  # pular cabeçalho
+
+        resultados = []
+        for tr in linhas:
+            colunas = tr.find_all("td")
+            if len(colunas) >= 6:
+                tipo = colunas[0].text.strip()
+                data_com = datetime.strptime(colunas[2].text.strip(), "%d/%m/%Y")
+                pagamento = datetime.strptime(colunas[3].text.strip(), "%d/%m/%Y")
+                valor = colunas[4].text.strip().replace("R$", "").replace(",", ".")
+                resultados.append({
+                    "tipo": tipo,
+                    "data_com": data_com,
+                    "pagamento": pagamento,
+                    "valor": float(valor)
+                })
+
+        hoje = datetime.now()
+        proximos = [r for r in resultados if hoje <= r["data_com"] <= hoje + timedelta(days=15)]
+        return proximos
+
     except Exception as e:
-        print(f"Erro ao buscar dividendos: {e}")
+        print(f"Erro ao buscar dados para {ticker}: {e}")
         return []
 
 @app.route("/")
 def index():
     ticker = request.args.get("q", "ITSA4").upper()
-    setor = request.args.get("setor", "Bancos")
-
-    dividendos = get_dividendos(ticker)
-
-    hoje = datetime.now().date()
-    fim = hoje + timedelta(days=15)
-    proximos = [
-        d for d in dividendos
-        if d.get("paymentDate") and hoje <= datetime.strptime(d["paymentDate"], "%Y-%m-%d").date() <= fim
-    ]
-
-    rows = ""
-    for d in proximos:
-        rows += f"<tr><td>{d.get('paymentDate')}</td><td>{d.get('label')}</td><td>{d.get('value')}</td></tr>"
-
-    labels = [f'"{d.get("paymentDate")}"' for d in proximos]
-    values = [d.get("value", 0) for d in proximos]
+    dados = extrair_proventos_statusinvest(ticker)
 
     html = f"""
-    <html><head><meta charset="utf-8"><title>LEVERAGE IA</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head>
+    <html><head><meta charset="utf-8"><title>Proventos</title></head>
     <body style="font-family: sans-serif; padding: 20px">
-        <h1>LEVERAGE IA</h1>
-        <form>
-            <input name="q" placeholder="Digite o ticker" value="{ticker}">
-            <select name="setor">
-                <option value="Bancos" {"selected" if setor == "Bancos" else ""}>Bancos</option>
-                <option value="Elétrico" {"selected" if setor == "Elétrico" else ""}>Elétrico</option>
-                <option value="FIIs" {"selected" if setor == "FIIs" else ""}>FIIs</option>
-            </select>
+        <h1>Proventos nos próximos 15 dias - {ticker}</h1>
+        <form method="get">
+            <input name="q" value="{ticker}" placeholder="Digite o ticker" style="padding:5px">
             <button type="submit">Buscar</button>
         </form>
-        <h2>Proventos nos próximos 15 dias ({ticker})</h2>
-        <table border="1" cellpadding="5" style="border-collapse: collapse; margin-top: 10px;">
-            <tr><th>Data</th><th>Tipo</th><th>Valor</th></tr>
-            {rows if rows else "<tr><td colspan='3'>Sem dados próximos</td></tr>"}
-        </table>
-        <canvas id="grafico" width="400" height="150" style="margin-top: 20px;"></canvas>
-        <script>
-        new Chart(document.getElementById("grafico"), {{
-            type: "bar",
-            data: {{
-                labels: [{",".join(labels)}],
-                datasets: [{{
-                    label: "Proventos",
-                    data: {json.dumps(values)},
-                    backgroundColor: "rgba(75, 192, 192, 0.5)"
-                }}]
-            }}
-        }});
-        </script>
-    </body></html>
+        <table border="1" cellpadding="5" style="margin-top: 20px; border-collapse: collapse;">
+            <tr><th>Tipo</th><th>Data Com</th><th>Pagamento</th><th>Valor (R$)</th></tr>
     """
+
+    if dados:
+        for d in dados:
+            html += f"<tr><td>{d['tipo']}</td><td>{d['data_com'].strftime('%d/%m/%Y')}</td><td>{d['pagamento'].strftime('%d/%m/%Y')}</td><td>{d['valor']:.2f}</td></tr>"
+    else:
+        html += "<tr><td colspan='4'>Sem proventos nos próximos 15 dias.</td></tr>"
+
+    html += "</table></body></html>"
     return html
 
 if __name__ == "__main__":
