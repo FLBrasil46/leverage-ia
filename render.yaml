@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: leverage-ia
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: BRAPI_TOKEN
+        value: seu_token_aqui
