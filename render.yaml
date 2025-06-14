@@ -1,9 +1,10 @@
 services:
   - type: web
-    name: leverage-ia
+    name: proventos-statusinvest
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: ""
     startCommand: python app.py
+    plan: free
     envVars:
-      - key: BRAPI_TOKEN
-        value: seu_token_aqui
+      - key: PORT
+        value: 10000
