@@ -1,72 +1,78 @@
+import os
+import requests
+from bs4 import BeautifulSoup
 from flask import Flask, request
-import statistics
 import json
 
 app = Flask(__name__)
 
-# Simulação de fontes públicas
-def coletar_precos_alvo(ticker):
-    # Em uma versão com scraping real, usaríamos requests + BeautifulSoup aqui
-    fontes = {
-        "XP Investimentos": 34.50,
-        "BTG Pactual": 36.00,
-        "Itaú BBA": 35.20,
-        "Bradesco BBI": 33.90,
-        "Genial Investimentos": 36.50,
-        "Empiricus": 34.75,
-        "Modalmais": 35.10,
-    }
-    return fontes
+def coletar_preco_alvo_walletinvestor(ticker):
+    url = f"https://walletinvestor.com/analytic/{ticker}-forecast"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        card = soup.find("div", class_="card-body")
+        target = None
+        if card:
+            span = card.find("span", text=lambda t: t and "Target mean" in t)
+            if span:
+                val = span.find_next("span").get_text(strip=True).replace(',', '')
+                target = float(val)
+        return target
+    except Exception as e:
+        print(f"Erro ao buscar dados de {ticker}: {e}")
+        return None
 
 @app.route("/")
 def index():
     ticker = request.args.get("q", "PETR4").upper()
-    precos = coletar_precos_alvo(ticker)
+    precos_alvo = []
 
-    media = round(statistics.mean(precos.values()), 2) if precos else 0.0
+    target = coletar_preco_alvo_walletinvestor(ticker)
+    if target:
+        precos_alvo.append({"fonte": "WalletInvestor", "valor": target})
 
-    linhas = ""
-    for fonte, preco in precos.items():
-        linhas += f"<tr><td>{fonte}</td><td>R$ {preco:.2f}</td></tr>"
-
-    fontes = [f'"{fonte}"' for fonte in precos.keys()]
-    valores = list(precos.values())
+    labels = [p["fonte"] for p in precos_alvo]
+    valores = [p["valor"] for p in precos_alvo]
 
     html = f"""
+    <!DOCTYPE html>
     <html>
     <head>
         <meta charset="utf-8">
-        <title>Preço-Alvo: {ticker}</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+        <title>Preço-Alvo - {ticker}</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     </head>
     <body class="container py-4">
-        <h1 class="mb-4">Preço-Alvo: {ticker}</h1>
-        <form method="get" class="mb-3">
-            <input name="q" value="{ticker}" class="form-control" placeholder="Digite o ticker" style="max-width: 300px; display: inline-block;">
+        <h1 class="mb-4">Preço-Alvo Médio de <strong>{ticker}</strong></h1>
+        <form class="mb-3">
+            <input type="text" name="q" value="{ticker}" placeholder="Ex: PETR4" class="form-control w-25 d-inline">
             <button type="submit" class="btn btn-primary">Buscar</button>
         </form>
 
-        <h3>Média dos Preços-Alvo: R$ {media:.2f}</h3>
-
-        <table class="table table-bordered mt-3">
+        <table class="table table-bordered">
             <thead><tr><th>Fonte</th><th>Preço-Alvo</th></tr></thead>
-            <tbody>{linhas}</tbody>
+            <tbody>
+                {''.join(f"<tr><td>{p['fonte']}</td><td>R$ {p['valor']:.2f}</td></tr>" for p in precos_alvo) if precos_alvo else '<tr><td colspan="2">Nenhum dado encontrado</td></tr>'}
+            </tbody>
         </table>
 
-        <canvas id="grafico" height="100"></canvas>
+        <canvas id="grafico" width="400" height="150" class="mt-4"></canvas>
         <script>
-        new Chart(document.getElementById("grafico"), {{
-            type: "bar",
-            data: {{
-                labels: [{','.join(fontes)}],
-                datasets: [{{
-                    label: "Preço-Alvo (R$)",
-                    data: {json.dumps(valores)},
-                    backgroundColor: "rgba(54, 162, 235, 0.6)"
-                }}]
-            }}
-        }});
+            new Chart(document.getElementById("grafico"), {{
+                type: "bar",
+                data: {{
+                    labels: {json.dumps(labels)},
+                    datasets: [{{
+                        label: "Preço-Alvo (R$)",
+                        data: {json.dumps(valores)},
+                        backgroundColor: "rgba(54, 162, 235, 0.6)"
+                    }}]
+                }}
+            }});
         </script>
     </body>
     </html>
@@ -74,6 +80,5 @@ def index():
     return html
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
