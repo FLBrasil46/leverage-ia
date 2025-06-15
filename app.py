@@ -1,81 +1,57 @@
-import os
-import requests
+from flask import Flask
 from bs4 import BeautifulSoup
-from flask import Flask, request
-import json
+import os
 
 app = Flask(__name__)
 
-def coletar_preco_alvo_walletinvestor(ticker):
-    url = f"https://walletinvestor.com/analytic/{ticker}-forecast"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        card = soup.find("div", class_="card-body")
-        target = None
-        if card:
-            span = card.find("span", text=lambda t: t and "Target mean" in t)
-            if span:
-                val = span.find_next("span").get_text(strip=True).replace(',', '')
-                target = float(val)
-        return target
-    except Exception as e:
-        print(f"Erro ao buscar dados de {ticker}: {e}")
-        return None
+# Leitura do arquivo HTML no diretório do projeto
+DATA_FILE = "investidor10_dividendos.txt"
+
+try:
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        html = f.read()
+except FileNotFoundError:
+    html = ""
+    print(f"Arquivo não encontrado: {DATA_FILE}")
+
+soup = BeautifulSoup(html, "html.parser")
+tabela = soup.find("table")
+proventos = []
+
+if tabela:
+    for row in tabela.find_all("tr")[1:]:
+        cols = row.find_all("td")
+        if len(cols) >= 5:
+            proventos.append({
+                "ticker": cols[0].text.strip(),
+                "tipo": cols[1].text.strip(),
+                "data_com": cols[2].text.strip(),
+                "pagamento": cols[3].text.strip(),
+                "valor": cols[4].text.strip(),
+            })
 
 @app.route("/")
 def index():
-    ticker = request.args.get("q", "PETR4").upper()
-    precos_alvo = []
+    if not proventos:
+        return "<h2>Nenhum dado carregado. Verifique o arquivo investidor10_dividendos.txt</h2>"
 
-    target = coletar_preco_alvo_walletinvestor(ticker)
-    if target:
-        precos_alvo.append({"fonte": "WalletInvestor", "valor": target})
-
-    labels = [p["fonte"] for p in precos_alvo]
-    valores = [p["valor"] for p in precos_alvo]
+    linhas = "".join([
+        f"<tr><td>{p['ticker']}</td><td>{p['tipo']}</td><td>{p['data_com']}</td><td>{p['pagamento']}</td><td>{p['valor']}</td></tr>"
+        for p in proventos
+    ])
 
     html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Preço-Alvo - {ticker}</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    </head>
-    <body class="container py-4">
-        <h1 class="mb-4">Preço-Alvo Médio de <strong>{ticker}</strong></h1>
-        <form class="mb-3">
-            <input type="text" name="q" value="{ticker}" placeholder="Ex: PETR4" class="form-control w-25 d-inline">
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
-
-        <table class="table table-bordered">
-            <thead><tr><th>Fonte</th><th>Preço-Alvo</th></tr></thead>
-            <tbody>
-                {''.join(f"<tr><td>{p['fonte']}</td><td>R$ {p['valor']:.2f}</td></tr>" for p in precos_alvo) if precos_alvo else '<tr><td colspan="2">Nenhum dado encontrado</td></tr>'}
-            </tbody>
-        </table>
-
-        <canvas id="grafico" width="400" height="150" class="mt-4"></canvas>
-        <script>
-            new Chart(document.getElementById("grafico"), {{
-                type: "bar",
-                data: {{
-                    labels: {json.dumps(labels)},
-                    datasets: [{{
-                        label: "Preço-Alvo (R$)",
-                        data: {json.dumps(valores)},
-                        backgroundColor: "rgba(54, 162, 235, 0.6)"
-                    }}]
-                }}
-            }});
-        </script>
-    </body>
-    </html>
+    <!DOCTYPE html><html><head><meta charset='utf-8'>
+    <title>Proventos - Investidor10</title>
+    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
+    </head><body class='container py-4'>
+    <h1 class='mb-4'>Proventos extraídos do Investidor10</h1>
+    <table class='table table-bordered table-striped'>
+        <thead class='table-dark'><tr>
+            <th>Ticker</th><th>Tipo</th><th>Data COM</th><th>Pagamento</th><th>Valor</th>
+        </tr></thead><tbody>{linhas}</tbody>
+    </table>
+    </body></html>
     """
     return html
 
