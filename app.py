@@ -1,90 +1,73 @@
 import os
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask
 from datetime import datetime
-import json
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("MARKETSTACK_API_KEY", "")
-BASE_URL = "http://api.marketstack.com/v1/dividends"
-
-# Ativos americanos populares para exemplo
-TICKERS = ["AAPL", "MSFT", "KO", "JNJ", "IBM", "PEP", "PG", "MO", "INTC", "T"]
-
-def formatar_data(data_iso):
+def obter_proventos():
+    url = "https://investidor10.com.br/proventos/"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
     try:
-        return datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
-    except:
-        return "—"
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, "html.parser")
+        tabela = soup.find("table")
+        linhas = tabela.find("tbody").find_all("tr")
+        proventos = []
 
-def buscar_dividendos_marketstack(ticker):
-    try:
-        params = {
-            "access_key": API_KEY,
-            "symbols": ticker,
-            "limit": 5
-        }
-        response = requests.get(BASE_URL, params=params)
-        dados = response.json().get("data", [])
-        return [{
-            "ticker": ticker,
-            "data_com": formatar_data(d.get("ex_date")),
-            "pagamento": formatar_data(d.get("payment_date")),
-            "valor": d.get("dividend", 0)
-        } for d in dados if d.get("dividend")]
+        for linha in linhas:
+            colunas = linha.find_all("td")
+            if len(colunas) < 6:
+                continue
+            papel = colunas[0].text.strip()
+            tipo = colunas[1].text.strip()
+            data_com = colunas[2].text.strip()
+            pagamento = colunas[3].text.strip()
+            valor = colunas[4].text.strip()
+            proventos.append({
+                "papel": papel,
+                "tipo": tipo,
+                "data_com": data_com,
+                "pagamento": pagamento,
+                "valor": valor
+            })
+        return proventos
     except Exception as e:
-        print(f"Erro ao buscar {ticker}: {e}")
+        print(f"Erro ao obter dados: {e}")
         return []
 
 @app.route("/")
 def index():
-    dividendos = []
-    for t in TICKERS:
-        dividendos += buscar_dividendos_marketstack(t)
-
-    dividendos.sort(key=lambda x: x["pagamento"])
-
-    rows = ""
-    labels = []
-    values = []
-
-    for d in dividendos:
-        rows += f"<tr><td>{d['ticker']}</td><td>{d['data_com']}</td><td>{d['pagamento']}</td><td>{d['valor']:.2f}</td></tr>"
-        labels.append(f"{d['ticker']} ({d['pagamento']})")
-        values.append(d['valor'])
+    proventos = obter_proventos()
+    linhas = ""
+    for p in proventos:
+        linhas += f"""
+        <tr>
+            <td>{p['papel']}</td>
+            <td>{p['tipo']}</td>
+            <td>{p['data_com']}</td>
+            <td>{p['pagamento']}</td>
+            <td>{p['valor']}</td>
+        </tr>
+        """
 
     html = f"""
-    <!DOCTYPE html>
-    <html lang="pt-br"><head><meta charset="UTF-8">
-    <title>Leverage IA - Dividendos</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    </head><body class="bg-light p-4">
-    <div class="container">
-        <h1 class="mb-4 text-primary">Dividendos Confirmados (Ações EUA)</h1>
-        <table class="table table-bordered table-striped shadow-sm">
-            <thead class="table-dark">
-                <tr><th>Ativo</th><th>Data Com</th><th>Pagamento</th><th>Valor (USD)</th></tr>
-            </thead>
-            <tbody>{rows or '<tr><td colspan=4>Sem dados disponíveis</td></tr>'}</tbody>
+    <html><head><meta charset="utf-8">
+    <title>Dividendos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head><body class="p-4">
+        <h1 class="mb-4">Proventos Futuros (Investidor10)</h1>
+        <table class="table table-bordered table-striped">
+            <thead><tr>
+                <th>Papel</th><th>Tipo</th><th>Data COM</th><th>Pagamento</th><th>Valor</th>
+            </tr></thead>
+            <tbody>
+                {linhas if linhas else "<tr><td colspan='5'>Sem dados disponíveis</td></tr>"}
+            </tbody>
         </table>
-        <h5 class="mt-5">Distribuição Gráfica</h5>
-        <canvas id="grafico" height="100"></canvas>
-    </div>
-    <script>
-        new Chart(document.getElementById("grafico"), {{
-            type: "bar",
-            data: {{
-                labels: {json.dumps(labels)},
-                datasets: [{{
-                    label: "Valor por Ação (USD)",
-                    data: {json.dumps(values)},
-                    backgroundColor: "rgba(54, 162, 235, 0.5)"
-                }}]
-            }}
-        }});
-    </script>
     </body></html>
     """
     return html
