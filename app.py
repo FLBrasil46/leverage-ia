@@ -45,7 +45,7 @@ def index():
     <title>Proventos - Investidor10</title>
     <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
     </head><body class='container py-4'>
-    <h1 class='mb-4'>Proventos extraídos do Investidor10</h1>
+    <h1 class='mb-4'>LEVERAGE IA - MELHORES OPORTUNIDADES</h1>
     <table class='table table-bordered table-striped'>
         <thead class='table-dark'><tr>
             <th>Ticker</th><th>Tipo</th><th>Data COM</th><th>Pagamento</th><th>Valor</th>
