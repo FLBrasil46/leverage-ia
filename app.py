@@ -1,56 +1,47 @@
 import os
-from flask import Flask, request
 import requests
-from datetime import datetime, timedelta
+from flask import Flask
+from datetime import datetime
 
 app = Flask(__name__)
+API_KEY = os.environ.get("MARKETSTACK_KEY", "")
+BASE = "https://api.marketstack.com/v1"
+TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "JNJ", "KO", "PG", "PFE", "NVDA"]
 
-API_KEY = os.environ.get("TD_APIKEY", "")
-BASE = "https://api.twelvedata.com"
-
-ATIVOS = ["ITSA4.BVMF", "BBAS3.BVMF", "TAEE11.BVMF"]
-
-def fetch_dividends_calendar(start, end):
-    url = f"{BASE}/dividends_calendar?exchange=BVMF&start_date={start}&end_date={end}&apikey={API_KEY}"
+def fetch_dividends(symbol):
+    params = {"access_key": API_KEY, "symbols": symbol, "limit": 100}
     try:
-        resp = requests.get(url, timeout=5)
-        return resp.json().get("dividends", [])
+        r = requests.get(f"{BASE}/dividends", params=params, timeout=5)
+        return r.json().get("data", [])
     except Exception as e:
-        print("Erro na API:", e)
+        print(f"Erro ao buscar {symbol}: {e}")
         return []
 
 @app.route("/")
 def index():
-    hoje = datetime.today().date()
-    fim = hoje + timedelta(days=15)
-    divs = fetch_dividends_calendar(hoje.isoformat(), fim.isoformat())
-
-    ticker = request.args.get("q", "").upper()
-    if ticker:
-        divs = [d for d in divs if d["symbol"].startswith(ticker)]
-
-    html = """
-    <html><head><meta charset="utf-8"><title>Leverage IA - Proventos</title></head>
-    <body style="font-family:sans-serif;padding:20px">
-      <h1>Próximos proventos (15 dias)</h1>
-      <form><input name="q" placeholder="Ativo (ex: ITSA4)" value="{t}"><button>Filtrar</button></form>
-      <table border="1" cellpadding="5" style="border-collapse:collapse;margin-top:20px;">
-        <tr><th>Ativo</th><th>Data</th><th>Valor</th></tr>
-    """.format(t=ticker)
-
-    if divs:
+    html_rows = ""
+    for t in TICKERS:
+        divs = fetch_dividends(t)
         for d in divs:
-            if d["symbol"] in ATIVOS:
-                html += f"<tr><td>{d['symbol']}</td><td>{d['ex_date']}</td><td>{d['dividend']}</td></tr>"
-    else:
-        html += "<tr><td colspan='3'>Nenhum provento encontrado</td></tr>"
+            date = d.get("date", "—")[:10]
+            amount = d.get("dividend", 0)
+            html_rows += f"<tr><td>{t}</td><td>{date}</td><td>{amount:.4f}</td></tr>"
 
-    html += "</table></body></html>"
+    html = f"""
+    <html><head><meta charset="utf-8"><title>Dividendos</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    </head><body class="p-4">
+      <h2>Dividendos encontrados</h2>
+      <table class="table table-striped">
+        <thead><tr><th>Ativo</th><th>Data</th><th>Valor</th></tr></thead>
+        <tbody>
+          {html_rows or '<tr><td colspan="3">Nenhum dividendo encontrado.</td></tr>'}
+        </tbody>
+      </table>
+      <p class="text-muted">Dados via Marketstack (<a href="https://marketstack.com/">API</a>)</p>
+    </body></html>
+    """
     return html
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
