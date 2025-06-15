@@ -1,61 +1,85 @@
-import time
+import os
+import requests
 from flask import Flask
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import json
 
 app = Flask(__name__)
 
+API_KEY = os.environ.get("MARKETSTACK_API_KEY", "")  # Defina no Render
+HEADERS = {"apikey": API_KEY}
+BASE_URL = "http://api.marketstack.com/v1"
+
+TICKERS = ["AAPL", "MSFT", "KO", "PG", "PEP", "JNJ", "XOM", "TSLA"]
+
+def get_dividends(ticker):
+    url = f"{BASE_URL}/dividends?access_key={API_KEY}&symbols={ticker}&limit=5"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        return data.get("data", [])
+    except Exception as e:
+        print("Erro:", e)
+        return []
+
 @app.route("/")
 def index():
-    # Configurar navegador headless
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+    rows = ""
+    chart_labels = []
+    chart_values = []
 
-    driver = webdriver.Chrome(options=chrome_options)
-    driver.get("https://statusinvest.com.br/proventos")
+    for ticker in TICKERS:
+        dividendos = get_dividends(ticker)
+        for d in dividendos:
+            rows += f"<tr><td>{ticker}</td><td>{d.get('date','')}</td><td>{d.get('dividend','')}</td></tr>"
+            chart_labels.append(d.get('date'))
+            chart_values.append(d.get('dividend'))
 
-    try:
-        # Espera a tabela carregar
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "results"))
-        )
-
-        # Coleta os dados da tabela
-        linhas = driver.find_elements(By.CSS_SELECTOR, "#results tbody tr")
-        dados = []
-        for linha in linhas[:30]:  # Limita para não pesar muito
-            colunas = linha.find_elements(By.TAG_NAME, "td")
-            if len(colunas) >= 6:
-                dados.append({
-                    "ativo": colunas[0].text,
-                    "tipo": colunas[1].text,
-                    "data_com": colunas[2].text,
-                    "pagamento": colunas[3].text,
-                    "valor": colunas[4].text,
-                    "yield": colunas[5].text,
-                })
-    except Exception as e:
-        driver.quit()
-        return f"Erro ao extrair dados: {e}"
-
-    driver.quit()
-
-    # Gera HTML
-    html = """
-    <html><head><meta charset='utf-8'><title>Proventos - StatusInvest</title></head><body>
-    <h1>Proventos Fututos</h1>
-    <table border='1' cellpadding='5' cellspacing='0'>
-        <tr><th>Ativo</th><th>Tipo</th><th>Data Com</th><th>Pagamento</th><th>Valor</th><th>Yield</th></tr>
+    html = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Leverage IA - Dividendos</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    </head>
+    <body class="bg-light p-4">
+        <div class="container">
+            <h1 class="mb-4">📈 Leverage IA - Dividendos Recentes</h1>
+            <table class="table table-striped table-bordered">
+                <thead class="table-dark"><tr><th>Ativo</th><th>Data</th><th>Valor</th></tr></thead>
+                <tbody>{rows or "<tr><td colspan='3'>Nenhum dado encontrado</td></tr>"}</tbody>
+            </table>
+            <canvas id="grafico" height="100"></canvas>
+        </div>
+        <script>
+        const ctx = document.getElementById('grafico').getContext('2d');
+        new Chart(ctx, {{
+            type: 'bar',
+            data: {{
+                labels: {json.dumps(chart_labels)},
+                datasets: [{{
+                    label: 'Dividendos por data',
+                    data: {json.dumps(chart_values)},
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)'
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                plugins: {{
+                    legend: {{ position: 'top' }},
+                    title: {{
+                        display: true,
+                        text: 'Histórico de Proventos'
+                    }}
+                }}
+            }}
+        }});
+        </script>
+    </body>
+    </html>
     """
-    for d in dados:
-        html += f"<tr><td>{d['ativo']}</td><td>{d['tipo']}</td><td>{d['data_com']}</td><td>{d['pagamento']}</td><td>{d['valor']}</td><td>{d['yield']}</td></tr>"
-    html += "</table></body></html>"
     return html
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
