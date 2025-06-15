@@ -1,82 +1,60 @@
-import os
-import requests
 from flask import Flask
 import json
+import os
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("MARKETSTACK_API_KEY", "")  # Defina no Render
-HEADERS = {"apikey": API_KEY}
-BASE_URL = "http://api.marketstack.com/v1"
-
-TICKERS = ["AAPL", "MSFT", "KO", "PG", "PEP", "JNJ", "XOM", "TSLA"]
-
-def get_dividends(ticker):
-    url = f"{BASE_URL}/dividends?access_key={API_KEY}&symbols={ticker}&limit=5"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        return data.get("data", [])
-    except Exception as e:
-        print("Erro:", e)
-        return []
+# Dados simulados de dividendos (você pode trocar por chamada real depois)
+dividendos = [
+    {"ticker": "AAPL", "data_com": "2024-05-10", "pagamento": "2024-05-16", "valor": 0.26},
+    {"ticker": "MSFT", "data_com": "2024-04-18", "pagamento": "2024-06-08", "valor": 0.68},
+    {"ticker": "JNJ",  "data_com": "2024-05-22", "pagamento": "2024-06-04", "valor": 1.19},
+    {"ticker": "KO",   "data_com": "2024-06-01", "pagamento": "2024-06-15", "valor": 0.46},
+]
 
 @app.route("/")
 def index():
     rows = ""
-    chart_labels = []
-    chart_values = []
+    labels = []
+    values = []
 
-    for ticker in TICKERS:
-        dividendos = get_dividends(ticker)
-        for d in dividendos:
-            rows += f"<tr><td>{ticker}</td><td>{d.get('date','')}</td><td>{d.get('dividend','')}</td></tr>"
-            chart_labels.append(d.get('date'))
-            chart_values.append(d.get('dividend'))
+    for d in dividendos:
+        rows += f"<tr><td>{d['ticker']}</td><td>{d['data_com']}</td><td>{d['pagamento']}</td><td>{d['valor']}</td></tr>"
+        labels.append(f"{d['ticker']} ({d['pagamento']})")
+        values.append(d['valor'])
 
     html = f"""
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Leverage IA - Dividendos</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    </head>
-    <body class="bg-light p-4">
-        <div class="container">
-            <h1 class="mb-4">📈 Leverage IA - Dividendos Recentes</h1>
-            <table class="table table-striped table-bordered">
-                <thead class="table-dark"><tr><th>Ativo</th><th>Data</th><th>Valor</th></tr></thead>
-                <tbody>{rows or "<tr><td colspan='3'>Nenhum dado encontrado</td></tr>"}</tbody>
-            </table>
-            <canvas id="grafico" height="100"></canvas>
-        </div>
-        <script>
-        const ctx = document.getElementById('grafico').getContext('2d');
-        new Chart(ctx, {{
-            type: 'bar',
+    <!DOCTYPE html>
+    <html lang="pt-br"><head><meta charset="UTF-8">
+    <title>Leverage IA - Proventos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    </head><body class="bg-light p-4">
+    <div class="container">
+        <h1 class="mb-4 text-primary">Dividendos Programados (EUA)</h1>
+        <table class="table table-bordered table-striped shadow-sm">
+            <thead class="table-dark">
+                <tr><th>Ativo</th><th>Data Com</th><th>Pagamento</th><th>Valor (USD)</th></tr>
+            </thead>
+            <tbody>{rows}</tbody>
+        </table>
+        <h5 class="mt-5">Distribuição gráfica</h5>
+        <canvas id="grafico" height="100"></canvas>
+    </div>
+    <script>
+        new Chart(document.getElementById("grafico"), {{
+            type: "bar",
             data: {{
-                labels: {json.dumps(chart_labels)},
+                labels: {json.dumps(labels)},
                 datasets: [{{
-                    label: 'Dividendos por data',
-                    data: {json.dumps(chart_values)},
-                    backgroundColor: 'rgba(54, 162, 235, 0.6)'
+                    label: "Valor por Ação (USD)",
+                    data: {json.dumps(values)},
+                    backgroundColor: "rgba(54, 162, 235, 0.5)"
                 }}]
-            }},
-            options: {{
-                responsive: true,
-                plugins: {{
-                    legend: {{ position: 'top' }},
-                    title: {{
-                        display: true,
-                        text: 'Histórico de Proventos'
-                    }}
-                }}
             }}
         }});
-        </script>
-    </body>
-    </html>
+    </script>
+    </body></html>
     """
     return html
 
